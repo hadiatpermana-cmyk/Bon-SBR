@@ -10,7 +10,6 @@
     
     <style>
         :root { --p-color: #2c3e50; --s-color: #27ae60; --bg: #121214; --text-color: #333333; }
-        /* TAMBAHAN: overscroll-behavior-y: none untuk mencegah pull-to-refresh bawaan browser HP */
         body { font-family: 'Roboto Condensed', Tahoma, sans-serif; margin: 0; padding: 10px; background: var(--bg); color: #fff; font-size: 16px; transition: background 0.3s, color 0.3s; overscroll-behavior-y: none; }
         
         .container { background: #1e1e24; padding: 12px; border-radius: 15px; max-width: 950px; margin: auto; box-shadow: 0 5px 20px rgba(0,0,0,0.5); transition: background 0.3s; }
@@ -82,11 +81,28 @@
         .control-group label { font-size: 12px; font-weight: 900; color: #cbd5e0; text-transform: uppercase; letter-spacing: 0.5px; }
         .control-group input[type="date"] { padding: 10px; border-radius: 6px; border: 2px solid #4a5568; font-size: 15px; font-weight: 700; background: #2d3748; color: white; width: 100%; box-sizing: border-box; font-family: 'Roboto Condensed', Tahoma, sans-serif; }
 
+        /* RESPONSIF KHUSUS HP (MOBILE VIEW FIX) */
         @media (max-width: 768px) {
             .top-summary-grid { flex-direction: column; }
             .summary-card { width: 100%; }
             .bottom-control-panel { flex-direction: column; align-items: stretch; }
             .bottom-control-panel .btn-primary-blue { margin-top: 5px; }
+            
+            /* Memperbaiki card list antrean agar turun ke bawah secara vertikal di HP */
+            .card-main-content { flex-direction: column !important; }
+            .card-top-info { flex-direction: column; align-items: flex-start !important; gap: 8px; }
+            .card-top-info > div:last-child { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+            
+            /* Penyesuaian header utama */
+            header { flex-direction: column; align-items: flex-start; gap: 10px; }
+            header > div:last-child { margin-left: 0 !important; width: 100%; text-align: right; }
+            
+            /* Penyesuaian tombol share */
+            .section-label + div, div[style*="display: flex; justify-content: space-between"] {
+                flex-direction: column;
+                align-items: stretch !important;
+                gap: 8px;
+            }
         }
 
         .section-label { font-size: 16px; font-weight: 900; padding: 8px; background: #2b6cb0; color: white; border-radius: 6px; margin: 15px 0 8px; text-transform: uppercase; }
@@ -156,7 +172,6 @@
         .modal-left-box { background: #1a202c; border: 1px solid #4a5568; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
         .modal-right-box { background: #2d3748; border: 1px solid #3182ce; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; }
         
-        /* TAMBAHAN: overscroll-behavior-y: contain untuk area yang di-scroll */
         .box-scroll-barang { max-height: 250px; overflow-y: auto; background: #121214; padding: 5px; border-radius: 6px; border: 1px solid #4a5568; overscroll-behavior-y: contain; }
         .box-scroll-tabungan { max-height: 380px; overflow-y: auto; padding-right: 3px; overscroll-behavior-y: contain; }
         .scroll-y { overflow-y: auto; max-height: 250px; overscroll-behavior-y: contain; }
@@ -197,7 +212,6 @@
                 <span>📊 Ttl Kebutuhan (Antrean)</span>
                 <span id="textJumlahAgenAntrean" style="color:#fff;">0 Agen</span>
             </div>
-            <!-- TAMBAHAN: class="scroll-y" untuk mengaktifkan overscroll -->
             <div class="scroll-y" style="flex: 1;">
                 <table class="table-muatan">
                     <thead>
@@ -222,7 +236,6 @@
                     <option value="">-- Pilih Item --</option>
                 </select>
             </div>
-            <!-- TAMBAHAN: class="scroll-y" untuk mengaktifkan overscroll -->
             <div class="scroll-y" style="flex: 1;">
                 <table class="table-muatan table-simulasi">
                     <thead>
@@ -354,7 +367,6 @@
     let indexEditAntreanAktif = -1; 
 
     async function initAplikasi() {
-        // Terapkan Tema & Logo Saat Halaman Dimuat
         const savedTheme = localStorage.getItem('sbr_theme');
         const logoImg = document.getElementById('logoBrand');
         
@@ -829,102 +841,95 @@
         renderTabelSimulasi();
     }
 
-function renderTabelSimulasi() {
-    const container = document.getElementById('bodyStockSummary');
-    let item = document.getElementById('pilihItemSimulasi').value;
-    
-    if(!item) {
-         container.innerHTML = `<tr><td colspan="5" style="text-align: center; color: inherit; font-style: italic; padding: 30px;">Silakan pilih item di atas untuk mulai simulasi.</td></tr>`;
-         return;
-    }
-
-    let demandList = [];
-
-    // 1. Ambil demand dari List Antrean Sementara persis sesuai URUTAN LIST ANTREAN
-    listKirimSementara.forEach(agen => {
-        let brg = agen.barang.find(b => b.nama_barang === item);
-        let jumlahDikirim = (brg && brg.qty_real > 0) ? brg.qty_real : (brg ? brg.qty_order : 0);
+    function renderTabelSimulasi() {
+        const container = document.getElementById('bodyStockSummary');
+        let item = document.getElementById('pilihItemSimulasi').value;
         
-        if(jumlahDikirim > 0) { 
-            demandList.push({ agen: agen.nama_agen, qty: jumlahDikirim, isFixed: false });
+        if(!item) {
+             container.innerHTML = `<tr><td colspan="5" style="text-align: center; color: inherit; font-style: italic; padding: 30px;">Silakan pilih item di atas untuk mulai simulasi.</td></tr>`;
+             return;
         }
-    });
 
-    // 2. Ambil demand dari Riwayat/History yang Sudah FIX (diurutkan alfabetis/SOP)
-    let historyDemand = [];
-    if (cacheRiwayatHariIni && cacheRiwayatHariIni.length > 0) {
-        cacheRiwayatHariIni.forEach(j => {
-            if(j.jadwal_kirim_detail) {
-                let brg = j.jadwal_kirim_detail.find(det => det.nama_barang === item);
-                let jumlahDikirim = (brg && brg.qty_real > 0) ? brg.qty_real : (brg ? brg.qty_order : 0);
-                
-                if (jumlahDikirim > 0) {
-                    historyDemand.push({ agen: j.nama_agen, qty: jumlahDikirim, isFixed: true });
-                }
+        let demandList = [];
+
+        listKirimSementara.forEach(agen => {
+            let brg = agen.barang.find(b => b.nama_barang === item);
+            let jumlahDikirim = (brg && brg.qty_real > 0) ? brg.qty_real : (brg ? brg.qty_order : 0);
+            
+            if(jumlahDikirim > 0) { 
+                demandList.push({ agen: agen.nama_agen, qty: jumlahDikirim, isFixed: false });
             }
         });
-    }
 
-    // Urutkan riwayat/history secara rapi agar konsisten
-    historyDemand.sort((a, b) => a.agen.localeCompare(b.agen));
+        let historyDemand = [];
+        if (cacheRiwayatHariIni && cacheRiwayatHariIni.length > 0) {
+            cacheRiwayatHariIni.forEach(j => {
+                if(j.jadwal_kirim_detail) {
+                    let brg = j.jadwal_kirim_detail.find(det => det.nama_barang === item);
+                    let jumlahDikirim = (brg && brg.qty_real > 0) ? brg.qty_real : (brg ? brg.qty_order : 0);
+                    
+                    if (jumlahDikirim > 0) {
+                        historyDemand.push({ agen: j.nama_agen, qty: jumlahDikirim, isFixed: true });
+                    }
+                }
+            });
+        }
 
-    // Gabungkan: History (Selesai/FIX) ditaruh di awal atau di akhir sesuai alur kontrol yang diinginkan
-    // (Dalam kasus ini, antrean aktif mengikuti nomor urut antrean secara ketat)
-    demandList = [...demandList, ...historyDemand];
+        historyDemand.sort((a, b) => a.agen.localeCompare(b.agen));
+        demandList = [...demandList, ...historyDemand];
 
-    if(!cacheSupplyArmada[item]) cacheSupplyArmada[item] = [{},{},{},{}]; 
-    let supplyList = cacheSupplyArmada[item];
+        if(!cacheSupplyArmada[item]) cacheSupplyArmada[item] = [{},{},{},{}]; 
+        let supplyList = cacheSupplyArmada[item];
 
-    let maxRows = Math.max(supplyList.length, demandList.length);
-    if (maxRows < 4) maxRows = 4;
+        let maxRows = Math.max(supplyList.length, demandList.length);
+        if (maxRows < 4) maxRows = 4;
 
-    let totalSupply = supplyList.reduce((sum, s) => sum + (parseInt(s.qty) || 0), 0);
-    let sisaBerjalan = totalSupply;
+        let totalSupply = supplyList.reduce((sum, s) => sum + (parseInt(s.qty) || 0), 0);
+        let sisaBerjalan = totalSupply;
 
-    let html = '';
-    for(let i = 0; i < maxRows; i++) {
-         let sup = supplyList[i] || {armada:'', qty:''};
-         let dem = demandList[i];
-         
-         let htmlAgen = '';
-         let htmlSisa = '';
-
-         if(dem) {
-             sisaBerjalan -= dem.qty;
+        let html = '';
+        for(let i = 0; i < maxRows; i++) {
+             let sup = supplyList[i] || {armada:'', qty:''};
+             let dem = demandList[i];
              
-             let tagFix = dem.isFixed ? `<span style="color:#27ae60; font-size:11px; margin-left:4px; font-weight:bold;">(✅ FIX)</span>` : '';
-             
-             htmlAgen = `
-                <td style="font-size:13px;">${dem.agen} ${tagFix}</td>
-                <td style="text-align:center; font-weight:bold;">${dem.qty}</td>
-             `;
-             htmlSisa = `<td style="text-align:center; font-weight:900; font-size:15px; color:${sisaBerjalan < 0 ? '#e53e3e' : 'inherit'}">${sisaBerjalan}</td>`;
-         } else {
-             if(i >= demandList.length && demandList.length > 0) {
-                 htmlAgen = `<td style="text-align:center;">-</td><td style="text-align:center;">0</td>`;
+             let htmlAgen = '';
+             let htmlSisa = '';
+
+             if(dem) {
+                 sisaBerjalan -= dem.qty;
+                 let tagFix = dem.isFixed ? `<span style="color:#27ae60; font-size:11px; margin-left:4px; font-weight:bold;">(✅ FIX)</span>` : '';
+                 
+                 htmlAgen = `
+                    <td style="font-size:13px;">${dem.agen} ${tagFix}</td>
+                    <td style="text-align:center; font-weight:bold;">${dem.qty}</td>
+                 `;
                  htmlSisa = `<td style="text-align:center; font-weight:900; font-size:15px; color:${sisaBerjalan < 0 ? '#e53e3e' : 'inherit'}">${sisaBerjalan}</td>`;
              } else {
-                 htmlAgen = `<td></td><td></td>`;
-                 htmlSisa = `<td></td>`;
+                 if(i >= demandList.length && demandList.length > 0) {
+                     htmlAgen = `<td style="text-align:center;">-</td><td style="text-align:center;">0</td>`;
+                     htmlSisa = `<td style="text-align:center; font-weight:900; font-size:15px; color:${sisaBerjalan < 0 ? '#e53e3e' : 'inherit'}">${sisaBerjalan}</td>`;
+                 } else {
+                     htmlAgen = `<td></td><td></td>`;
+                     htmlSisa = `<td></td>`;
+                 }
              }
-         }
 
-         html += `<tr>
-             <td><input type="text" class="input-sim-armada" value="${sup.armada || ''}" onchange="updateSupplyItem('${item}', ${i}, 'armada', this.value)" placeholder="Nama Armada..."></td>
-             <td><input type="number" class="input-sim-saldo" value="${sup.qty || ''}" onchange="updateSupplyItem('${item}', ${i}, 'qty', this.value)"></td>
-             ${htmlAgen}
-             ${htmlSisa}
-         </tr>`;
+             html += `<tr>
+                 <td><input type="text" class="input-sim-armada" value="${sup.armada || ''}" onchange="updateSupplyItem('${item}', ${i}, 'armada', this.value)" placeholder="Nama Armada..."></td>
+                 <td><input type="number" class="input-sim-saldo" value="${sup.qty || ''}" onchange="updateSupplyItem('${item}', ${i}, 'qty', this.value)"></td>
+                 ${htmlAgen}
+                 ${htmlSisa}
+             </tr>`;
+        }
+
+        html += `<tr>
+            <td style="text-align:right; font-weight:900; font-size:14px; padding-top:10px;">Total Kiriman :</td>
+            <td style="text-align:center; font-weight:900; font-size:16px; padding-top:10px;">${totalSupply}</td>
+            <td colspan="3"></td>
+        </tr>`;
+
+        container.innerHTML = html;
     }
-
-    html += `<tr>
-        <td style="text-align:right; font-weight:900; font-size:14px; padding-top:10px;">Total Kiriman :</td>
-        <td style="text-align:center; font-weight:900; font-size:16px; padding-top:10px;">${totalSupply}</td>
-        <td colspan="3"></td>
-    </tr>`;
-
-    container.innerHTML = html;
-}
 
     function renderListKirimCompact() {
         const container = document.getElementById('containerListKirim');
