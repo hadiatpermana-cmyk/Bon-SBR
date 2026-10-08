@@ -30,6 +30,7 @@
         #ukuranKertas { width: 100%; margin-top: 10px; padding: 10px; border-radius: 8px; border: 2px solid #cbd5e0; font-size: 16px; font-weight: 900; color: #2d3748; background: white; outline: none; }
         #statusBT { font-size: 12px; font-weight: bold; margin-top: 5px; display: block; color: #e53e3e; }
         
+        #notifEditMode { display: none; background: #fffaf0; color: #dd6b20; padding: 12px; border-radius: 10px; border: 2px solid #ed8936; text-align: center; font-weight: 900; margin-bottom: 10px; font-size: 14px; }
         #notifBon { display: none; background: #fff5f5; color: #c53030; padding: 12px; border-radius: 10px; border: 2px solid #feb2b2; text-align: center; font-weight: 900; margin-bottom: 15px; animation: blinker 1s linear infinite; font-size: 18px; }
         @keyframes blinker { 50% { opacity: 0.3; border-color: transparent; } }
 
@@ -79,15 +80,22 @@
         <button class="btn-logout" onclick="logout()">LOGOUT</button>
     </header>
 
+    <div id="notifEditMode">⚠️ MODE EDIT NOTA LAMA - Perubahan akan menimpa data terdahulu!</div>
     <div id="notifBon">⚠️ AGEN INI PUNYA BON LAMA!</div>
 
     <div class="info-grid">
-        <input type="text" id="noNota" readonly placeholder="No. Nota">
+        <div style="grid-column: span 2; display: flex; gap: 8px;">
+            <select id="selectNoNota" style="flex: 1; padding: 12px 8px; border: 2px solid #cbd5e0; border-radius: 10px; font-size: 17px; font-weight: 700; outline: none; background: #fff;">
+                <option value="BARU">-- NOTA BARU --</option>
+            </select>
+            <button id="btnAmbilNota" onclick="muatDataNotaTerpilih()" style="background: #3182ce; color: white; border: none; border-radius: 10px; padding: 0 15px; font-weight: 900; font-size: 14px; cursor: pointer;">✏️ AMBIL DATA</button>
+        </div>
+
         <input type="date" id="tglNota">
         <select id="pilihAgen" onchange="updateBon()"><option value="">-- AGEN --</option></select>
         <select id="driver1" disabled style="background:#edf2f7; color:#4a5568;"><option value="">-- DRIVER 1 --</option></select>
         <select id="pilihMobil"><option value="">-- MOBIL --</option></select>
-        <select id="driver2"><option value="">-- DRIVER 2 --</option></select>
+        <select id="driver2" style="grid-column: span 2;"><option value="">-- DRIVER 2 --</option></select>
     </div>
 
     <div>
@@ -160,7 +168,7 @@
     </div>
 </div>
 
-<!-- Modal Input Item (Urutan: NAMA BARANG - SATUAN - QTY) -->
+<!-- Modal Input Item -->
 <div id="modalInput" class="modal">
     <div class="modal-content">
         <h3 id="modalTitle" style="margin-top:0; text-transform:uppercase;">Daftar Barang</h3>
@@ -174,9 +182,7 @@
                     <th style="width: 35px; text-align: center;">#</th>
                 </tr>
             </thead>
-            <tbody id="listModalBarang">
-                <!-- Baris item dinamis -->
-            </tbody>
+            <tbody id="listModalBarang"></tbody>
         </table>
 
         <button type="button" class="btn-add-row-modal" onclick="tambahBarisModal()">+ Tambah Baris Barang</button>
@@ -219,6 +225,10 @@
     let isDeposit = false;
     let listBarangTersediaGlobal = [];
 
+    // --- VARIABEL UNTUK FITUR EDIT ---
+    let isEditMode = false;
+    let originalNotaData = null;
+
     function clearZero(el) { if(el.value === "0" || el.value === 0) el.value = ""; }
     function restoreZero(el) { if(el.value === "") el.value = "0"; }
 
@@ -252,6 +262,7 @@
 
     async function init() {
         try {
+            // 1. Muat Agen
             const { data: agen, error: errorAgen } = await clientSupabase.from('agen').select('*');
             if (errorAgen) throw new Error("Gagal muat AGEN: " + errorAgen.message);
             
@@ -267,6 +278,7 @@
                 });
             }
 
+            // 2. Muat Harga
             const { data: harga, error: errorHarga } = await clientSupabase.from('harga').select('*');
             if (errorHarga) throw new Error("Gagal muat HARGA: " + errorHarga.message);
             
@@ -277,6 +289,7 @@
                 });
             }
 
+            // 3. Muat Karyawan
             const { data: karyawan, error: errorKaryawan } = await clientSupabase
                 .from('karyawan')
                 .select('*')
@@ -303,6 +316,7 @@
                 });
             }
 
+            // 4. Muat Mobil
             const { data: mobil, error: errorMobil } = await clientSupabase.from('kendaraan').select('*');
             if (errorMobil) throw new Error("Gagal muat MOBIL: " + errorMobil.message);
             
@@ -310,6 +324,29 @@
             if(mobil) {
                 selMobil.innerHTML = '<option value="">-- MOBIL --</option>';
                 mobil.forEach(m => selMobil.options.add(new Option(m.plat_nomor, m.plat_nomor)));
+            }
+
+            // 5. Muat Dropdown Nota Terakhir
+            try {
+                const selectNota = document.getElementById('selectNoNota');
+                selectNota.innerHTML = '<option value="BARU">-- NOTA BARU --</option>';
+
+                const { data: listNota, error: errNota } = await clientSupabase
+                    .from('transaksi')
+                    .select('id, no_nota, nama_agen, tanggal')
+                    .order('id', { ascending: false })
+                    .limit(8);
+
+                if (errNota) {
+                    console.error("Gagal muat nota:", errNota.message);
+                } else if (listNota && listNota.length > 0) {
+                    listNota.forEach(n => {
+                        const nama = n.nama_agen ? n.nama_agen : "Tanpa Agen";
+                        selectNota.options.add(new Option(`✏️ ${n.no_nota} - ${nama}`, n.no_nota));
+                    });
+                }
+            } catch (err) {
+                console.error("Error Dropdown Nota:", err);
             }
 
             resetForm();
@@ -326,7 +363,7 @@
         const day = String(today.getDate()).padStart(2, '0');
         document.getElementById('tglNota').value = `${year}-${month}-${day}`;
 
-        document.getElementById('noNota').value = "SBR-" + Date.now().toString().slice(-6);
+        document.getElementById('selectNoNota').value = "BARU";
         document.getElementById('pilihAgen').value = "";
         document.getElementById('pilihMobil').value = "";
         document.getElementById('driver2').value = "";
@@ -336,6 +373,12 @@
         document.getElementById('inputOngkir').value = "0";
         document.getElementById('cbTidakTitip').checked = false;
         document.getElementById('cbTanpaPrinter').checked = false;
+        
+        // Bersihkan state edit
+        isEditMode = false;
+        originalNotaData = null;
+        document.getElementById('notifEditMode').style.display = "none";
+        
         togglePembayaran();
         document.getElementById('notifBon').style.display = "none";
         isDeposit = false;
@@ -351,18 +394,108 @@
         lastPrintText = "";
     }
 
+    async function muatDataNotaTerpilih() {
+        const selectedNo = document.getElementById('selectNoNota').value;
+        if (!selectedNo || selectedNo === "BARU") {
+            resetFormForNewNota();
+            return;
+        }
+
+        const btnAmbil = document.getElementById('btnAmbilNota');
+        btnAmbil.disabled = true;
+        btnAmbil.innerText = "LOADING...";
+
+        try {
+            const { data: tx, error: errTx } = await clientSupabase.from('transaksi').select('*').eq('no_nota', selectedNo).single();
+            if (errTx || !tx) throw new Error("Data nota tidak ditemukan!");
+
+            const { data: details, error: errDet } = await clientSupabase.from('transaksi_detail').select('*').eq('no_nota', selectedNo);
+            if (errDet) throw new Error("Gagal ambil detail nota: " + errDet.message);
+
+            isEditMode = true;
+            originalNotaData = { tx, details };
+            
+            document.getElementById('notifEditMode').style.display = "block";
+            document.getElementById('tglNota').value = tx.tanggal;
+            
+            document.getElementById('pilihAgen').value = tx.nama_agen || "";
+            document.getElementById('pilihMobil').value = tx.plat_nomor || "";
+            
+            let d1 = document.getElementById('driver1');
+            let foundD1 = false;
+            for(let i=0; i<d1.options.length; i++) { 
+                if(d1.options[i].value === tx.driver_1) foundD1 = true; 
+            }
+            if(!foundD1) d1.options.add(new Option(tx.driver_1, tx.driver_1));
+            d1.value = tx.driver_1 || "";
+
+            document.getElementById('driver2').value = tx.driver_2 || "";
+
+            itemsKirim = [];
+            itemsRetur = [];
+            if (details) {
+                details.forEach(d => {
+                    const itemObj = {
+                        barang: d.nama_barang,
+                        satuan: d.satuan,
+                        qty: d.qty,
+                        harga: d.harga_satuan,
+                        total: d.subtotal
+                    };
+                    if (d.tipe === 'Kirim') itemsKirim.push(itemObj);
+                    else if (d.tipe === 'Retur') itemsRetur.push(itemObj);
+                });
+            }
+
+            document.getElementById('inputCash').value = Number(tx.bayar_cash || 0).toLocaleString('id-ID');
+            document.getElementById('inputTrf').value = Number(tx.bayar_transfer || 0).toLocaleString('id-ID');
+            document.getElementById('inputOngkir').value = Number(tx.ongkir || 0).toLocaleString('id-ID');
+
+            if (tx.bayar_cash === 0 && tx.bayar_transfer === 0) {
+                document.getElementById('cbTidakTitip').checked = true;
+            } else {
+                document.getElementById('cbTidakTitip').checked = false;
+            }
+
+            togglePembayaran();
+            updateBon();
+            render();
+
+            alert(`✅ Nota ${selectedNo} berhasil dimuat. Silakan ubah QTY atau Nominal uang, lalu klik SIMPAN & PRINT untuk menimpa data.`);
+        } catch (e) {
+            alert("❌ Gagal memuat nota: " + e.message);
+        } finally {
+            btnAmbil.disabled = false;
+            btnAmbil.innerText = "✏️ AMBIL DATA";
+        }
+    }
+
     function updateBon() {
         const ag = document.getElementById('pilihAgen').value;
-        const saldoBon = database.harga[ag]?.bon || 0;
+        if(!ag) {
+            document.getElementById('boxBonLama').style.display = "none";
+            document.getElementById('boxOngkir').style.display = "none";
+            return;
+        }
+
+        let saldoBon = database.harga[ag]?.bon || 0;
+        
+        if (isEditMode && originalNotaData && originalNotaData.tx.nama_agen === ag) {
+            const txLama = originalNotaData.tx;
+            saldoBon = saldoBon - txLama.sisa_akhir;
+        }
+
         const agenPakeOngkir = ["Jawa Timur", "Catur", "Dajo Snack", "Edi", "Rizky", "Wanto"]; 
         const isOngkir = agenPakeOngkir.includes(ag);
         isDeposit = saldoBon < 0;
+
         document.getElementById('boxBonLama').style.display = saldoBon !== 0 ? "block" : "none";
         document.getElementById('boxOngkir').style.display = isOngkir ? "block" : "none";
         document.getElementById('rowTxtOngkir').style.display = isOngkir ? "flex" : "none";
         document.getElementById('labelBonUI').innerText = isDeposit ? "📄 DEPOSIT :" : "📄 BON LAMA :";
         document.getElementById('labelSumBon').innerText = isDeposit ? "Deposit:" : "Bon Lama:";
         document.getElementById('inputBonLama').value = Math.abs(saldoBon).toLocaleString('id-ID');
+        
         const notif = document.getElementById('notifBon');
         if (saldoBon > 0) {
             notif.innerText = "⚠️ AGEN INI PUNYA BON LAMA!";
@@ -714,7 +847,11 @@
         const btn = document.getElementById('btnSimpan');
         btn.innerText = "MENYIMPAN DATA..."; btn.disabled = true;
 
-        const noNota = document.getElementById('noNota').value;
+        let noNota = document.getElementById('selectNoNota').value;
+        if (!isEditMode || noNota === "BARU") {
+            noNota = "SBR-" + Date.now().toString().slice(-6);
+        }
+
         const tglInput = document.getElementById('tglNota').value;
         const [y, m, d] = tglInput.split('-');
         const tglIndo = `${d}-${m}-${y}`;
@@ -778,19 +915,38 @@
         p += `\x1B\x45\x01TERIMA KASIH\x1B\x45\x00\nSBR PUTRA FOOD - Order System\n\n\n\n\n`;
 
         try {
-            await clientSupabase.from('transaksi').insert([{
-                no_nota: noNota, nama_agen: ag, tanggal: tglInput,
-                driver_1: drv1, driver_2: drv2 || null, plat_nomor: mobil, 
-                total_kirim: tk, total_retur: tr, bon_lama: bl_actual, 
-                ongkir: ongkir, 
-                bayar_cash: cash, bayar_transfer: trf, sisa_akhir: sisa
-            }]);
+            if (isEditMode && originalNotaData) {
+                // Hapus detail transaksi lama
+                await clientSupabase.from('transaksi_detail').delete().eq('no_nota', noNota);
 
+                // Update data transaksi utama
+                const { error: errUpdate } = await clientSupabase.from('transaksi').update({
+                    nama_agen: ag, tanggal: tglInput,
+                    driver_1: drv1, driver_2: drv2 || null, plat_nomor: mobil, 
+                    total_kirim: tk, total_retur: tr, bon_lama: bl_actual, 
+                    ongkir: ongkir, bayar_cash: cash, bayar_transfer: trf, sisa_akhir: sisa
+                }).eq('no_nota', noNota);
+                if (errUpdate) throw new Error(errUpdate.message);
+            } else {
+                // Insert nota baru
+                const { error: errTx } = await clientSupabase.from('transaksi').insert([{
+                    no_nota: noNota, nama_agen: ag, tanggal: tglInput,
+                    driver_1: drv1, driver_2: drv2 || null, plat_nomor: mobil, 
+                    total_kirim: tk, total_retur: tr, bon_lama: bl_actual, 
+                    ongkir: ongkir, 
+                    bayar_cash: cash, bayar_transfer: trf, sisa_akhir: sisa
+                }]);
+                if (errTx) throw new Error(errTx.message);
+            }
+
+            // Simpan detail data barang baru
             const details = [
                 ...itemsKirim.map(i => ({ no_nota: noNota, nama_barang: i.barang, qty: i.qty, satuan: i.satuan, tipe: 'Kirim', harga_satuan: i.harga, subtotal: i.total })),
                 ...itemsRetur.map(i => ({ no_nota: noNota, nama_barang: i.barang, qty: i.qty, satuan: i.satuan, tipe: 'Retur', harga_satuan: i.harga, subtotal: i.total }))
             ];
             await clientSupabase.from('transaksi_detail').insert(details);
+            
+            // Update Master Saldo Bon Agen
             await clientSupabase.from('agen').update({ saldo_bon: sisa }).eq('nama_agen', ag);
 
             if (btCharacteristic) {
@@ -817,6 +973,20 @@
             });
 
             btn.innerText = "SUKSES DISIMPAN";
+            
+            // Update dropdown setelah berhasil simpan
+            try {
+                const selectNota = document.getElementById('selectNoNota');
+                selectNota.innerHTML = '<option value="BARU">-- NOTA BARU --</option>';
+                const { data: listNota } = await clientSupabase.from('transaksi').select('id, no_nota, nama_agen, tanggal').order('id', { ascending: false }).limit(15);
+                if (listNota) {
+                    listNota.forEach(n => {
+                        const nama = n.nama_agen ? n.nama_agen : "Tanpa Agen";
+                        selectNota.options.add(new Option(`✏️ ${n.no_nota} - ${nama}`, n.no_nota));
+                    });
+                }
+            } catch (err) {}
+            
         } catch (e) {
             alert("❌ DATABASE ERROR: " + (e.message || e));
             btn.innerText = "SIMPAN & PRINT"; btn.disabled = false;
